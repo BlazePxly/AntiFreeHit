@@ -1,0 +1,6 @@
+name: AntiFreeHit
+version: '1.0-SNAPSHOT'
+main: org.blazepxly.antiFreeHit.AntiFreeHit
+api-version: '1.21'
+authors: [ BlazePxly ]
+description: CombatLog for Blaze
