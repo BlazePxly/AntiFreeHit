@@ -1,0 +1,88 @@
+# Compiled class files
+*.class
+*.jar
+
+# Build output
+/target/
+/build/
+/out/
+/bin/
+/dist/
+
+# IDE files
+/.idea/
+/*.iml
+/*.iws
+/.settings/
+/.project
+/.classpath
+/.factorypath
+
+# Eclipse
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# IntelliJ
+*.ipr
+*.iws
+*.ids
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Log files
+*.log
+logs/
+
+# Dependency directories
+/lib/
+/libraries/
+/dependencies/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Gradle
+.gradle/
+/build/
+
+# Local configuration files
+*.properties
+!src/main/resources/*.properties
+
+# Temporary files
+*.tmp
+*.temp
+
+# Plugin specific
+/config.yml
+/*.db
+/*.sqlite
+/*.sql

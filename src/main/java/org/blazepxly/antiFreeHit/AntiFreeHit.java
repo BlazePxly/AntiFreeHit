@@ -7,102 +7,128 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AntiFreeHit extends JavaPlugin implements Listener {
 
-    private final Map<UUID, Long> combatPlayers = new HashMap<>();
-    private final Map<UUID, BukkitTask> actionBarTasks = new HashMap<>();
+    private final Map<UUID, Set<UUID>> combatPairs = new ConcurrentHashMap<>();
+    private final Map<UUID, BukkitTask> combatTasks = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
+        Bukkit.getLogger().info("[DEBUG] Plugin enabled");
         Bukkit.getPluginManager().registerEvents(this, this);
     }
 
     @Override
     public void onDisable() {
-        combatPlayers.clear();
-        actionBarTasks.values().forEach(BukkitTask::cancel);
-        actionBarTasks.clear();
+        Bukkit.getLogger().info("[DEBUG] Plugin disabled, cancelling all tasks");
+        combatTasks.values().forEach(BukkitTask::cancel);
+        combatPairs.clear();
+        combatTasks.clear();
     }
 
     @EventHandler
     public void onPlayerDamage(EntityDamageByEntityEvent event) {
+        Bukkit.getLogger().info("[DEBUG] onPlayerDamage triggered");
         if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) {
+            Bukkit.getLogger().info("[DEBUG] Event ignored, either entity or damager is not player");
             return;
         }
 
         Player attacker = (Player) event.getDamager();
         Player defender = (Player) event.getEntity();
+        UUID attackerId = attacker.getUniqueId();
+        UUID defenderId = defender.getUniqueId();
 
-        setCombat(attacker);
-        setCombat(defender);
-    }
+        Bukkit.getLogger().info("[DEBUG] Attacker: " + attacker.getName() + ", Defender: " + defender.getName());
 
-    private void setCombat(Player player) {
-        UUID playerId = player.getUniqueId();
+        Set<UUID> attackerOpponents = combatPairs.getOrDefault(attackerId, Collections.emptySet());
+        Set<UUID> defenderOpponents = combatPairs.getOrDefault(defenderId, Collections.emptySet());
 
-        // Bersihkan task sebelumnya jika ada
-        BukkitTask oldTask = actionBarTasks.get(playerId);
-        if (oldTask != null) {
-            oldTask.cancel();
+        if (!attackerOpponents.contains(defenderId) && combatTasks.containsKey(attackerId)) {
+            String names = getOpponentNames(attackerOpponents);
+            attacker.sendMessage("§cYou are still in combat" + (names.isEmpty() ? "." : " with " + names + "."));
+            event.setCancelled(true);
+            Bukkit.getLogger().info("[DEBUG] Attack blocked: attacker still in combat with " + names);
+            return;
         }
 
-        long startTime = System.currentTimeMillis();
-        combatPlayers.put(playerId, startTime);
-        player.sendMessage("§cYou are now in combat!");
+        if (!defenderOpponents.contains(attackerId) && combatTasks.containsKey(defenderId)) {
+            defender.sendMessage("§cYou are still in combat with someone else.");
+            attacker.sendMessage("§cThat player is currently in combat.");
+            event.setCancelled(true);
+            Bukkit.getLogger().info("[DEBUG] Attack blocked: defender still in combat with others");
+            return;
+        }
 
-        // Buat task baru untuk action bar
-        BukkitTask newTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
-            long remainingTime = 15000 - (System.currentTimeMillis() - startTime);
+        tagCombatPair(attacker, defender);
 
-            if (remainingTime <= 0) {
-                removeFromCombat(player);
-                return;
+        attacker.sendMessage("§eYou are fighting with " + defender.getName());
+        defender.sendMessage("§eYou are fighting with " + attacker.getName());
+        Bukkit.getLogger().info("[DEBUG] Combat tagged between " + attacker.getName() + " and " + defender.getName());
+    }
+
+    private String getOpponentNames(Set<UUID> opponents) {
+        if (opponents == null || opponents.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (UUID id : opponents) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(p.getName());
+            }
+        }
+        return sb.toString();
+    }
+
+    private void tagCombatPair(Player p1, Player p2) {
+        UUID uuid1 = p1.getUniqueId();
+        UUID uuid2 = p2.getUniqueId();
+
+        Bukkit.getLogger().info("[DEBUG] tagCombatPair called for " + p1.getName() + " and " + p2.getName());
+
+        combatPairs.computeIfAbsent(uuid1, k -> new HashSet<>()).add(uuid2);
+        combatPairs.computeIfAbsent(uuid2, k -> new HashSet<>()).add(uuid1);
+
+        resetCombatTimer(uuid1);
+        resetCombatTimer(uuid2);
+
+        Bukkit.getLogger().info("[DEBUG] Combat pairs updated: " + p1.getName() + " -> " + getOpponentNames(combatPairs.get(uuid1)) +
+                ", " + p2.getName() + " -> " + getOpponentNames(combatPairs.get(uuid2)));
+    }
+
+    private void resetCombatTimer(UUID playerId) {
+        Bukkit.getLogger().info("[DEBUG] resetCombatTimer called for " + playerId);
+        if (combatTasks.containsKey(playerId)) {
+            combatTasks.get(playerId).cancel();
+            Bukkit.getLogger().info("[DEBUG] Old timer cancelled for " + playerId);
+        }
+
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(this, () -> {
+            Bukkit.getLogger().info("[DEBUG] Timer expired for " + playerId);
+            Set<UUID> opponents = combatPairs.remove(playerId);
+
+            if (opponents != null) {
+                for (UUID oppId : opponents) {
+                    Set<UUID> oppSet = combatPairs.get(oppId);
+                    if (oppSet != null) {
+                        oppSet.remove(playerId);
+                        if (oppSet.isEmpty()) combatPairs.remove(oppId);
+                    }
+                }
             }
 
-            sendActionBar(player, "§cCombat: §f" + (remainingTime / 1000) + "s remaining");
-        }, 0L, 5L); // Update setiap 5 tick (0.25 detik)
-
-        actionBarTasks.put(playerId, newTask);
-
-        // Schedule untuk keluar otomatis setelah 15 detik
-        Bukkit.getScheduler().runTaskLater(this, () -> {
-            if (isInCombat(player)) {
-                removeFromCombat(player);
+            combatTasks.remove(playerId);
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                player.sendMessage("§aYou are no longer in combat.");
             }
-        }, 15 * 20L);
-    }
+            Bukkit.getLogger().info("[DEBUG] Player " + playerId + " removed from combatPairs");
+        }, 20 * 15);
 
-    private void removeFromCombat(Player player) {
-        UUID playerId = player.getUniqueId();
-
-        combatPlayers.remove(playerId);
-
-        BukkitTask task = actionBarTasks.remove(playerId);
-        if (task != null) {
-            task.cancel();
-        }
-
-        sendActionBar(player, "");
-        player.sendMessage("§aYou are no longer in combat!");
-    }
-
-    private void sendActionBar(Player player, String message) {
-        // Metode untuk mengirim ActionBar (kompatibel dengan berbagai versi)
-        try {
-            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(message));
-        } catch (NoSuchMethodError e) {
-            // Fallback untuk versi lama
-            player.sendMessage(message);
-        }
-    }
-
-    public boolean isInCombat(Player player) {
-        return combatPlayers.containsKey(player.getUniqueId());
+        combatTasks.put(playerId, task);
+        Bukkit.getLogger().info("[DEBUG] Timer scheduled for " + playerId + " (15s)");
     }
 }
